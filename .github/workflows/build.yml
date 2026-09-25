@@ -111,7 +111,6 @@ jobs:
           import android.content.pm.PackageManager
           import android.graphics.Color
           import android.graphics.drawable.GradientDrawable
-          import android.net.Uri
           import android.os.Build
           import android.os.Bundle
           import android.os.Handler
@@ -234,7 +233,6 @@ jobs:
                       orientation = LinearLayout.VERTICAL
                       layoutParams = FrameLayout.LayoutParams(-1, -1) }
 
-                  // HEADER
                   val header = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       setPadding(24, 40, 24, 20); gravity = Gravity.CENTER_VERTICAL }
@@ -255,7 +253,6 @@ jobs:
                   header.addView(titleCol)
                   content.addView(header)
 
-                  // BANNIERE
                   val banner = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
@@ -273,12 +270,11 @@ jobs:
                   banner.addView(flagView(), LinearLayout.LayoutParams(34, 22).apply { setMargins(12, 0, 16, 0) })
                   content.addView(banner)
 
-                  // TABS
                   val tabs = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       setBackgroundColor(Color.parseColor("#CC151B2B"))
                       setPadding(0, 4, 0, 4) }
-                  val labels = listOf("🎵 Musique", "🎬 Vidéos", "🖼️ Photos")
+                  val labels = listOf("Musique", "Videos", "Photos")
                   val btns = mutableListOf<TextView>()
                   labels.forEachIndexed { idx, label ->
                       val b = TextView(this).apply {
@@ -319,26 +315,6 @@ jobs:
                   content.addView(rv, LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
-                  // PLAYER MINI-BAR (visible en bas)
-                  val miniBar = LinearLayout(this).apply {
-                      orientation = LinearLayout.HORIZONTAL
-                      gravity = Gravity.CENTER_VERTICAL
-                      setBackgroundColor(Color.parseColor("#EE151B2B"))
-                      setPadding(16, 12, 16, 12) }
-                  val miniInfo = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL }
-                  miniInfo.addView(TextView(this).apply {
-                      text = "Damien Music 241"; setTextColor(TEXT); textSize = 13f
-                      setTypeface(null, android.graphics.Typeface.BOLD) })
-                  miniInfo.addView(TextView(this).apply {
-                      text = "Selectionne un titre"; setTextColor(MUTED); textSize = 11f })
-                  miniBar.addView(miniInfo, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                  miniBar.addView(TextView(this).apply {
-                      text = "♪"; setTextColor(GOLD); textSize = 24f
-                      gravity = Gravity.CENTER; setPadding(16, 0, 0, 0) })
-                  content.addView(miniBar)
-
-                  // CREDIT
                   content.addView(TextView(this).apply {
                       text = "Concu par Damien Starly Koumba"
                       setTextColor(TEXT); textSize = 11f; gravity = Gravity.CENTER
@@ -466,7 +442,6 @@ jobs:
               }
 
               private fun filter(q: String) {
-                  // On garde simple : filtrage visuel sur la liste actuelle
                   when (currentTab) {
                       0 -> {
                           val filt = if (q.isEmpty()) songs else songs.filter {
@@ -510,7 +485,7 @@ jobs:
                   val s = items[pos]; val row = h.itemView as LinearLayout
                   val col = row.getChildAt(1) as LinearLayout
                   (col.getChildAt(0) as TextView).text = s.title
-                  (col.getChildAt(1) as TextView).text = "${s.artist} • ${s.album}"
+                  (col.getChildAt(1) as TextView).text = "${s.artist} - ${s.album}"
                   row.setOnClickListener { onClick(s, pos) } }
               override fun getItemCount() = items.size
               fun updateList(l: List<Song>) { items = l; notifyDataSetChanged() } }
@@ -524,7 +499,9 @@ jobs:
                       orientation = LinearLayout.HORIZONTAL; setPadding(26, 18, 26, 18)
                       layoutParams = RecyclerView.LayoutParams(-1, -2)
                       isClickable = true; setBackgroundColor(Color.parseColor("#B30B0F1A")) }
-                  val ic = TextView(ctx).apply { text = "🎬"; textSize = 28f; gravity = Gravity.CENTER }
+                  val ic = TextView(ctx).apply { text = "V"; setTextColor(Color.parseColor("#FBBF24"))
+                      textSize = 24f; gravity = Gravity.CENTER
+                      setTypeface(null, android.graphics.Typeface.BOLD) }
                   val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 0, 0, 0) }
                   col.addView(TextView(ctx).apply { setTextColor(Color.WHITE); textSize = 14f
                       setTypeface(null, android.graphics.Typeface.BOLD) })
@@ -570,8 +547,6 @@ jobs:
 
           import android.content.ContentUris
           import android.graphics.Color
-          import android.graphics.drawable.GradientDrawable
-          import android.net.Uri
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
@@ -597,7 +572,7 @@ jobs:
               private var player: ExoPlayer? = null
               private var currentIndex = 0
               private var type = "audio"
-              private var repeatMode = 0 // 0=off, 1=one, 2=all
+              private var repeatMode = 0
               private var shuffle = false
               private val handler = Handler(Looper.getMainLooper())
 
@@ -606,7 +581,6 @@ jobs:
               private lateinit var playBtn: TextView
               private lateinit var repeatBtn: TextView
               private lateinit var shuffleBtn: TextView
-              private lateinit var coverTv: TextView
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -620,168 +594,193 @@ jobs:
                       orientation = LinearLayout.VERTICAL
                       setBackgroundColor(Color.parseColor("#0B0F1A"))
                       gravity = Gravity.CENTER_HORIZONTAL
-                      setPadding(24, 50, 24, 40) }
+                      setPadding(24, 50, 24, 40)
+                  }
 
-                  // HEADER
                   val header = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
-                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
+                      layoutParams = LinearLayout.LayoutParams(-1, -2)
+                  }
                   header.addView(TextView(this).apply {
                       text = "←"; setTextColor(TEXT); textSize = 30f
                       gravity = Gravity.CENTER; setPadding(15, 0, 15, 0)
-                      setOnClickListener { finish() } })
+                      setOnClickListener { finish() }
+                  })
                   header.addView(TextView(this).apply {
-                      text = if (type == "audio") "♫ Lecture" else "▶ Vidéo"
+                      text = if (type == "audio") "Lecture" else "Video"
                       setTextColor(GOLD); textSize = 14f
                       setTypeface(null, android.graphics.Typeface.BOLD)
                       layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
-                      gravity = Gravity.CENTER })
-                  // MENU (3 lignes)
+                      gravity = Gravity.CENTER
+                  })
                   header.addView(TextView(this).apply {
-                      text = "☰"; setTextColor(TEXT); textSize = 26f
+                      text = "MENU"; setTextColor(TEXT); textSize = 14f
                       gravity = Gravity.CENTER; setPadding(15, 0, 15, 0)
-                      setOnClickListener { showPlaylist() } })
+                      setOnClickListener { showPlaylist() }
+                  })
                   root.addView(header)
 
-                  // COVER / VIDEO
                   if (type == "audio") {
-                      coverTv = TextView(this).apply {
-                          text = "🎵"; textSize = 130f; gravity = Gravity.CENTER
-                          setPadding(0, 60, 0, 30) }
-                      root.addView(coverTv)
+                      root.addView(TextView(this).apply {
+                          text = "MUSIQUE"; setTextColor(GOLD); textSize = 70f
+                          gravity = Gravity.CENTER
+                          setPadding(0, 60, 0, 30)
+                      })
 
                       titleTv = TextView(this).apply {
-                          setTextColor(TEXT); textSize = 22f; gravity = Gravity.CENTER
+                          text = "Titre"; setTextColor(TEXT); textSize = 22f
+                          gravity = Gravity.CENTER
                           setTypeface(null, android.graphics.Typeface.BOLD)
-                          setPadding(0, 20, 0, 8) }
+                          setPadding(0, 20, 0, 8)
+                      }
                       root.addView(titleTv)
 
                       artistTv = TextView(this).apply {
-                          setTextColor(MUTED); textSize = 14f; gravity = Gravity.CENTER
-                          setPadding(0, 0, 0, 40) }
+                          text = "Artiste"; setTextColor(MUTED); textSize = 14f
+                          gravity = Gravity.CENTER
+                          setPadding(0, 0, 0, 40)
+                      }
                       root.addView(artistTv)
                   } else {
                       val pv = PlayerView(this).apply {
-                          layoutParams = LinearLayout.LayoutParams(-1, 600) }
+                          layoutParams = LinearLayout.LayoutParams(-1, 600)
+                      }
                       root.addView(pv)
-                      // Le player sera attaché plus bas
-                      root.tag = pv
+                      pv.id = 12345
                   }
 
-                  // BARRE DE PROGRESSION (audio seulement)
+                  val seekBar = SeekBar(this).apply {
+                      layoutParams = LinearLayout.LayoutParams(-1, -2)
+                      id = 54321
+                  }
+                  if (type == "audio") root.addView(seekBar)
+
                   if (type == "audio") {
-                      val seek = SeekBar(this).apply {
-                          layoutParams = LinearLayout.LayoutParams(-1, -2) }
-                      root.addView(seek)
-                      root.tag = seek
+                      val timeRow = LinearLayout(this).apply {
+                          orientation = LinearLayout.HORIZONTAL
+                          layoutParams = LinearLayout.LayoutParams(-1, -2)
+                      }
+                      val cur = TextView(this).apply {
+                          text = "0:00"; setTextColor(MUTED); textSize = 11f
+                          id = 11111
+                      }
+                      val total = TextView(this).apply {
+                          text = "0:00"; setTextColor(MUTED); textSize = 11f
+                          id = 22222
+                      }
+                      timeRow.addView(cur)
+                      timeRow.addView(View(this),
+                          LinearLayout.LayoutParams(0, 1, 1f))
+                      timeRow.addView(total)
+                      root.addView(timeRow)
                   }
 
-                  // TEMPS
-                  val timeRow = LinearLayout(this).apply {
-                      orientation = LinearLayout.HORIZONTAL
-                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
-                  val cur = TextView(this).apply { text = "0:00"; setTextColor(MUTED); textSize = 11f }
-                  val total = TextView(this).apply { text = "0:00"; setTextColor(MUTED); textSize = 11f }
-                  val spacer = View(this)
-                  timeRow.addView(cur)
-                  timeRow.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
-                  timeRow.addView(total)
-                  if (type == "audio") root.addView(timeRow)
-
-                  // CONTROLES
                   val controls = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER
                       setPadding(0, 40, 0, 0)
-                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
+                      layoutParams = LinearLayout.LayoutParams(-1, -2)
+                  }
 
                   shuffleBtn = TextView(this).apply {
-                      text = "🔀"; textSize = 26f; gravity = Gravity.CENTER
+                      text = "MEL"; textSize = 14f; gravity = Gravity.CENTER
                       setPadding(20, 20, 20, 20)
                       setTextColor(MUTED)
-                      setOnClickListener { toggleShuffle() } }
+                      setOnClickListener { toggleShuffle() }
+                  }
                   controls.addView(shuffleBtn)
 
                   controls.addView(TextView(this).apply {
-                      text = "⏮"; setTextColor(TEXT); textSize = 38f
+                      text = "◀◀"; setTextColor(TEXT); textSize = 20f
                       gravity = Gravity.CENTER; setPadding(20, 0, 20, 0)
-                      setOnClickListener { prev() } })
+                      setOnClickListener { prev() }
+                  })
 
                   playBtn = TextView(this).apply {
-                      text = "⏸"; setTextColor(TEXT); textSize = 40f
+                      text = "II"; setTextColor(TEXT); textSize = 28f
                       gravity = Gravity.CENTER
                       setBackgroundColor(ACCENT)
                       setPadding(50, 35, 50, 35)
-                      setOnClickListener { togglePlay() } }
+                      setOnClickListener { togglePlay() }
+                  }
                   val plp = LinearLayout.LayoutParams(-2, -2)
                   plp.setMargins(20, 0, 20, 0)
                   controls.addView(playBtn, plp)
 
                   controls.addView(TextView(this).apply {
-                      text = "⏭"; setTextColor(TEXT); textSize = 38f
+                      text = "▶▶"; setTextColor(TEXT); textSize = 20f
                       gravity = Gravity.CENTER; setPadding(20, 0, 20, 0)
-                      setOnClickListener { next() } })
+                      setOnClickListener { next() }
+                  })
 
                   repeatBtn = TextView(this).apply {
-                      text = "🔁"; textSize = 26f; gravity = Gravity.CENTER
+                      text = "REP"; textSize = 14f; gravity = Gravity.CENTER
                       setPadding(20, 20, 20, 20)
                       setTextColor(MUTED)
-                      setOnClickListener { toggleRepeat() } }
+                      setOnClickListener { toggleRepeat() }
+                  }
                   controls.addView(repeatBtn)
 
                   root.addView(controls)
 
-                  // CREDIT
                   root.addView(TextView(this).apply {
                       text = "Concu par Damien Starly Koumba"
                       setTextColor(MUTED); textSize = 12f; gravity = Gravity.CENTER
-                      setPadding(0, 60, 0, 4) })
+                      setPadding(0, 60, 0, 4)
+                  })
                   root.addView(TextView(this).apply {
-                      text = "PROTOTYPE NEYLA 241 🇬🇦"
-                      setTextColor(GOLD); textSize = 10f; gravity = Gravity.CENTER })
+                      text = "PROTOTYPE NEYLA 241"
+                      setTextColor(GOLD); textSize = 10f; gravity = Gravity.CENTER
+                  })
 
                   setContentView(root)
 
-                  // Init player
                   player = ExoPlayer.Builder(this)
-                      .setMediaSourceFactory(DefaultMediaSourceFactory())
+                      .setMediaSourceFactory(DefaultMediaSourceFactory(this))
                       .setHandleAudioBecomingNoisy(true)
                       .build()
 
-                  val pv = if (type == "video") root.tag as? PlayerView else null
-                  if (pv != null) pv.player = player
+                  if (type == "video") {
+                      val pv = root.findViewById<PlayerView>(12345)
+                      pv?.player = player
+                  }
 
                   player!!.addListener(object : Player.Listener {
                       override fun onPlaybackStateChanged(state: Int) {
-                          if (state == Player.STATE_ENDED) next() }
+                          if (state == Player.STATE_ENDED) next()
+                      }
                       override fun onIsPlayingChanged(isPlaying: Boolean) {
-                          playBtn.text = if (isPlaying) "⏸" else "▶" }
+                          playBtn.text = if (isPlaying) "II" else "▶"
+                      }
                   })
 
-                  val seekBar = if (type == "audio") root.tag as? SeekBar else null
-                  if (seekBar != null) {
-                      seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                          override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
-                              if (fromUser) player?.seekTo(p.toLong()) }
-                          override fun onStartTrackingTouch(sb: SeekBar?) {}
-                          override fun onStopTrackingTouch(sb: SeekBar?) {} })
-
+                  if (type == "audio") {
+                      val sb = root.findViewById<SeekBar>(54321)
+                      val curTv = root.findViewById<TextView>(11111)
+                      val totalTv = root.findViewById<TextView>(22222)
+                      sb?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(s: SeekBar?, p: Int, u: Boolean) {
+                              if (u) player?.seekTo(p.toLong())
+                          }
+                          override fun onStartTrackingTouch(s: SeekBar?) {}
+                          override fun onStopTrackingTouch(s: SeekBar?) {}
+                      })
                       handler.post(object : Runnable {
                           override fun run() {
                               player?.let {
-                                  val cur = it.currentPosition
-                                  val dur = it.duration
-                                  if (dur > 0) {
-                                      seekBar.max = dur.toInt()
-                                      seekBar.progress = cur.toInt()
-                                      cur_@{
-                                          cur.text = fmt(cur)
-                                          total.text = fmt(dur)
-                                      }
+                                  val pos = it.currentPosition
+                                  val len = it.duration
+                                  if (len > 0) {
+                                      sb?.max = len.toInt()
+                                      sb?.progress = pos.toInt()
+                                      curTv?.text = fmt(pos)
+                                      totalTv?.text = fmt(len)
                                   }
                               }
-                              handler.postDelayed(this, 500) } })
+                              handler.postDelayed(this, 500)
+                          }
+                      })
                   }
 
                   playCurrent()
@@ -802,7 +801,7 @@ jobs:
                       player?.prepare()
                       player?.playWhenReady = true
                       titleTv.text = s.title
-                      artistTv.text = "${s.artist} • ${s.album}"
+                      artistTv.text = "${s.artist} - ${s.album}"
                   } else {
                       if (currentIndex >= PlaylistManager.vids.size) return
                       val v = PlaylistManager.vids[currentIndex]
@@ -820,9 +819,11 @@ jobs:
 
               private fun next() {
                   if (type == "audio") {
+                      if (PlaylistManager.songs.isEmpty()) return
                       currentIndex = if (shuffle) (0 until PlaylistManager.songs.size).random()
                       else (currentIndex + 1) % PlaylistManager.songs.size
                   } else {
+                      if (PlaylistManager.vids.isEmpty()) return
                       currentIndex = (currentIndex + 1) % PlaylistManager.vids.size
                   }
                   playCurrent()
@@ -830,8 +831,10 @@ jobs:
 
               private fun prev() {
                   if (type == "audio") {
+                      if (PlaylistManager.songs.isEmpty()) return
                       currentIndex = if (currentIndex - 1 < 0) PlaylistManager.songs.size - 1 else currentIndex - 1
                   } else {
+                      if (PlaylistManager.vids.isEmpty()) return
                       currentIndex = if (currentIndex - 1 < 0) PlaylistManager.vids.size - 1 else currentIndex - 1
                   }
                   playCurrent()
@@ -840,9 +843,9 @@ jobs:
               private fun toggleRepeat() {
                   repeatMode = (repeatMode + 1) % 3
                   when (repeatMode) {
-                      0 -> { player?.repeatMode = Player.REPEAT_MODE_OFF; repeatBtn.setTextColor(MUTED); repeatBtn.text = "🔁" }
-                      1 -> { player?.repeatMode = Player.REPEAT_MODE_ONE; repeatBtn.setTextColor(GOLD); repeatBtn.text = "🔂" }
-                      2 -> { player?.repeatMode = Player.REPEAT_MODE_ALL; repeatBtn.setTextColor(GOLD); repeatBtn.text = "🔁" }
+                      0 -> { player?.repeatMode = Player.REPEAT_MODE_OFF; repeatBtn.setTextColor(MUTED); repeatBtn.text = "REP" }
+                      1 -> { player?.repeatMode = Player.REPEAT_MODE_ONE; repeatBtn.setTextColor(GOLD); repeatBtn.text = "UN" }
+                      2 -> { player?.repeatMode = Player.REPEAT_MODE_ALL; repeatBtn.setTextColor(GOLD); repeatBtn.text = "ALL" }
                   }
               }
 
@@ -852,14 +855,18 @@ jobs:
               }
 
               private fun showPlaylist() {
-                  val list = if (type == "audio") PlaylistManager.songs else PlaylistManager.vids
-                  if (list.isEmpty()) return
-                  val names = list.map { if (type == "audio") (it as Song).title else (it as Vid).title }
+                  val names = if (type == "audio") {
+                      PlaylistManager.songs.map { it.title }
+                  } else {
+                      PlaylistManager.vids.map { it.title }
+                  }
+                  if (names.isEmpty()) return
                   android.app.AlertDialog.Builder(this)
                       .setTitle("Playlist (${names.size})")
                       .setItems(names.toTypedArray()) { _, which ->
                           currentIndex = which
-                          playCurrent() }
+                          playCurrent()
+                      }
                       .setNegativeButton("Fermer", null)
                       .show()
               }
@@ -929,7 +936,7 @@ jobs:
                       setTextColor(Color.parseColor("#8B96B8")); textSize = 12f
                       gravity = Gravity.CENTER })
                   bottom.addView(TextView(this).apply {
-                      text = "PROTOTYPE NEYLA 241 🇬🇦"
+                      text = "PROTOTYPE NEYLA 241"
                       setTextColor(Color.parseColor("#FBBF24")); textSize = 10f
                       gravity = Gravity.CENTER; setPadding(0, 6, 0, 0) })
                   val blp = FrameLayout.LayoutParams(
