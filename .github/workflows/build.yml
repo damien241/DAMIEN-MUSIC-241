@@ -18,7 +18,7 @@ jobs:
         with:
           gradle-version: 8.2
 
-      - name: Créer la structure
+      - name: Structure
         run: mkdir -p app/src/main/java/com/damienmusic/app
 
       - name: gradle.properties
@@ -42,6 +42,8 @@ jobs:
           cat > app/src/main/AndroidManifest.xml << 'XMLEOF'
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.READ_MEDIA_AUDIO"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
               <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.WAKE_LOCK"/>
@@ -49,21 +51,55 @@ jobs:
                   android:label="Damien Music 241"
                   android:usesCleartextTraffic="true"
                   android:theme="@style/Theme.AppCompat.NoActionBar">
-                  <activity
-                      android:name=".MainActivity"
-                      android:exported="true">
+                  <activity android:name=".MainActivity" android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN"/>
                           <category android:name="android.intent.category.LAUNCHER"/>
                       </intent-filter>
                   </activity>
-                  <activity
-                      android:name=".PlayerActivity"
-                      android:exported="false"
+                  <activity android:name=".PlayerActivity" android:exported="false"
                       android:configChanges="orientation|screenSize|keyboardHidden"/>
+                  <activity android:name=".ViewerActivity" android:exported="false"/>
               </application>
           </manifest>
           XMLEOF
+
+      - name: Data.kt
+        run: |
+          cat > app/src/main/java/com/damienmusic/app/Data.kt << 'KOTLIN_END'
+          package com.damienmusic.app
+
+          data class Song(
+              val id: Long,
+              val title: String,
+              val artist: String,
+              val album: String,
+              val duration: Long
+          )
+
+          data class Vid(
+              val id: Long,
+              val title: String,
+              val duration: Long
+          )
+
+          data class Photo(
+              val id: Long,
+              val name: String
+          )
+          KOTLIN_END
+
+      - name: PlaylistManager.kt
+        run: |
+          cat > app/src/main/java/com/damienmusic/app/PlaylistManager.kt << 'KOTLIN_END'
+          package com.damienmusic.app
+
+          object PlaylistManager {
+              var songs: MutableList<Song> = mutableListOf()
+              var vids: MutableList<Vid> = mutableListOf()
+              var photos: MutableList<Photo> = mutableListOf()
+          }
+          KOTLIN_END
 
       - name: MainActivity.kt
         run: |
@@ -71,17 +107,18 @@ jobs:
           package com.damienmusic.app
 
           import android.Manifest
-          import android.content.ContentUris
           import android.content.Intent
           import android.content.pm.PackageManager
           import android.graphics.Color
           import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
           import android.os.Build
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
           import android.provider.MediaStore
           import android.text.Editable
+          import android.text.TextUtils
           import android.text.TextWatcher
           import android.view.Gravity
           import android.view.View
@@ -91,11 +128,10 @@ jobs:
           import androidx.appcompat.app.AppCompatActivity
           import androidx.core.app.ActivityCompat
           import androidx.core.content.ContextCompat
+          import androidx.recyclerview.widget.GridLayoutManager
           import androidx.recyclerview.widget.LinearLayoutManager
           import androidx.recyclerview.widget.RecyclerView
           import com.bumptech.glide.Glide
-
-          data class Song(val id: Long, val title: String, val artist: String, val album: String, val duration: Long)
 
           class MainActivity : AppCompatActivity() {
               private val ACCENT = Color.parseColor("#E50914")
@@ -103,10 +139,16 @@ jobs:
               private val TEXT = Color.WHITE
               private val MUTED = Color.parseColor("#8B96B8")
 
-              private val allSongs = mutableListOf<Song>()
               private val songs = mutableListOf<Song>()
-              private var adapter: SongAdapter? = null
+              private val vids = mutableListOf<Vid>()
+              private val photos = mutableListOf<Photo>()
+
               private var currentTab = 0
+              private lateinit var rv: RecyclerView
+              private lateinit var search: EditText
+              private lateinit var statsTv: TextView
+              private lateinit var tabButtons: List<TextView>
+
               private lateinit var bgImage: ImageView
               private var bgIndex = 0
               private val handler = Handler(Looper.getMainLooper())
@@ -117,9 +159,8 @@ jobs:
                   "https://loremflickr.com/1080/1920/piano",
                   "https://loremflickr.com/1080/1920/gabon,forest",
                   "https://loremflickr.com/1080/1920/vinyl,record",
-                  "https://loremflickr.com/1080/1920/headphones",
                   "https://loremflickr.com/1080/1920/elephant,africa",
-                  "https://loremflickr.com/1080/1920/microphone"
+                  "https://loremflickr.com/1080/1920/headphones"
               )
 
               private fun flagView(): View {
@@ -132,10 +173,9 @@ jobs:
               }
 
               private fun tvLogoView(): View {
-                  val container = LinearLayout(this).apply {
+                  val c = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      gravity = Gravity.CENTER_HORIZONTAL
-                  }
+                      gravity = Gravity.CENTER_HORIZONTAL }
                   val tvBody = FrameLayout(this)
                   val g = GradientDrawable()
                   g.setColor(ACCENT); g.cornerRadius = 16f
@@ -145,36 +185,32 @@ jobs:
                   sg.setColor(Color.parseColor("#0B0F1A")); sg.cornerRadius = 8f
                   screen.background = sg
                   val d = TextView(this).apply {
-                      text = "D"; setTextColor(TEXT); textSize = 40f
+                      text = "D"; setTextColor(TEXT); textSize = 38f
                       gravity = Gravity.CENTER
-                      setTypeface(null, android.graphics.Typeface.BOLD)
-                  }
+                      setTypeface(null, android.graphics.Typeface.BOLD) }
                   screen.addView(d, FrameLayout.LayoutParams(-1, -1))
                   val lp = FrameLayout.LayoutParams(-1, -1)
-                  lp.setMargins(14, 14, 14, 14)
+                  lp.setMargins(13, 13, 13, 13)
                   tvBody.addView(screen, lp)
-                  container.addView(tvBody, LinearLayout.LayoutParams(150, 120))
+                  c.addView(tvBody, LinearLayout.LayoutParams(130, 100))
                   val legs = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-                  legs.addView(View(this).apply { setBackgroundColor(ACCENT) }, LinearLayout.LayoutParams(20, 12))
-                  legs.addView(View(this), LinearLayout.LayoutParams(80, 12))
-                  legs.addView(View(this).apply { setBackgroundColor(ACCENT) }, LinearLayout.LayoutParams(20, 12))
-                  container.addView(legs)
-                  return container
+                  legs.addView(View(this).apply { setBackgroundColor(ACCENT) }, LinearLayout.LayoutParams(18, 10))
+                  legs.addView(View(this), LinearLayout.LayoutParams(65, 10))
+                  legs.addView(View(this).apply { setBackgroundColor(ACCENT) }, LinearLayout.LayoutParams(18, 10))
+                  c.addView(legs)
+                  return c
               }
 
-              private fun startBackgroundCycling() {
-                  val runnable = object : Runnable {
+              private fun startBg() {
+                  val r = object : Runnable {
                       override fun run() {
                           Glide.with(this@MainActivity).load(bgImages[bgIndex % bgImages.size]).into(bgImage)
-                          val fade = AlphaAnimation(0f, 1f)
-                          fade.duration = 1200
-                          bgImage.startAnimation(fade)
+                          val f = AlphaAnimation(0f, 1f); f.duration = 1200
+                          bgImage.startAnimation(f)
                           bgIndex++
-                          handler.postDelayed(this, 6000)
-                      }
-                  }
-                  handler.post(runnable)
+                          handler.postDelayed(this, 6000) } }
+                  handler.post(r)
               }
 
               override fun onCreate(savedInstanceState: Bundle?) {
@@ -196,223 +232,335 @@ jobs:
 
                   val content = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      layoutParams = FrameLayout.LayoutParams(-1, -1)
-                  }
+                      layoutParams = FrameLayout.LayoutParams(-1, -1) }
 
+                  // HEADER
                   val header = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
-                      setPadding(30, 50, 30, 24); gravity = Gravity.CENTER_VERTICAL }
+                      setPadding(24, 40, 24, 20); gravity = Gravity.CENTER_VERTICAL }
                   header.addView(tvLogoView())
                   val titleCol = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL; setPadding(28, 0, 0, 0) }
+                      orientation = LinearLayout.VERTICAL; setPadding(22, 0, 0, 0) }
                   val titleRow = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                   titleRow.addView(TextView(this).apply {
-                      text = "Damien Music 241"; setTextColor(TEXT); textSize = 22f
+                      text = "Damien Music 241"; setTextColor(TEXT); textSize = 19f
                       setTypeface(null, android.graphics.Typeface.BOLD) })
-                  titleRow.addView(View(this), LinearLayout.LayoutParams(16, 1))
-                  titleRow.addView(flagView(), LinearLayout.LayoutParams(72, 46))
+                  titleRow.addView(View(this), LinearLayout.LayoutParams(12, 1))
+                  titleRow.addView(flagView(), LinearLayout.LayoutParams(60, 40))
                   titleCol.addView(titleRow)
                   titleCol.addView(TextView(this).apply {
-                      text = "PROTOTYPE NEYLA 241"; setTextColor(GOLD); textSize = 12f
-                      setPadding(0, 6, 0, 0) })
+                      text = "PROTOTYPE NEYLA 241"; setTextColor(GOLD); textSize = 10f
+                      setPadding(0, 4, 0, 0) })
                   header.addView(titleCol)
                   content.addView(header)
 
-                  // Bandeau défilant
+                  // BANNIERE
                   val banner = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
                       gravity = Gravity.CENTER_VERTICAL
                       setBackgroundColor(Color.parseColor("#66009E60")) }
-                  banner.addView(flagView(), LinearLayout.LayoutParams(40, 26).apply { setMargins(20, 0, 16, 0) })
+                  banner.addView(flagView(), LinearLayout.LayoutParams(34, 22).apply { setMargins(16, 0, 12, 0) })
                   val marquee = TextView(this).apply {
                       text = "Cette application est construite 100% gabonaise  •  Concu par Damien Starly Koumba  •  Prototype Neyla 241  •  "
-                      setTextColor(TEXT); textSize = 13f
+                      setTextColor(TEXT); textSize = 11f
                       setSingleLine(true)
-                      ellipsize = android.text.TextUtils.TruncateAt.MARQUEE
+                      ellipsize = TextUtils.TruncateAt.MARQUEE
                       marqueeRepeatLimit = -1
                       isSelected = true; isFocusable = true; isFocusableInTouchMode = true
-                      gravity = Gravity.CENTER
-                      setPadding(0, 8, 0, 8) }
+                      gravity = Gravity.CENTER; setPadding(0, 6, 0, 6) }
                   banner.addView(marquee, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-                  banner.addView(flagView(), LinearLayout.LayoutParams(40, 26).apply { setMargins(16, 0, 20, 0) })
+                  banner.addView(flagView(), LinearLayout.LayoutParams(34, 22).apply { setMargins(12, 0, 16, 0) })
                   content.addView(banner)
 
-                  // Statistiques
-                  val statsTv = TextView(this).apply {
-                      text = "Chargement de votre musique..."
-                      setTextColor(GOLD); textSize = 14f; gravity = Gravity.CENTER
-                      setPadding(0, 20, 0, 10); setTypeface(null, android.graphics.Typeface.BOLD) }
+                  // TABS
+                  val tabs = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      setBackgroundColor(Color.parseColor("#CC151B2B"))
+                      setPadding(0, 4, 0, 4) }
+                  val labels = listOf("🎵 Musique", "🎬 Vidéos", "🖼️ Photos")
+                  val btns = mutableListOf<TextView>()
+                  labels.forEachIndexed { idx, label ->
+                      val b = TextView(this).apply {
+                          text = label; setTextColor(if (idx == 0) ACCENT else TEXT)
+                          textSize = 13f; gravity = Gravity.CENTER
+                          setPadding(0, 20, 0, 20)
+                          setOnClickListener { switchTab(idx) } }
+                      btns.add(b)
+                      tabs.addView(b, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)) }
+                  tabButtons = btns
+                  content.addView(tabs)
+
+                  statsTv = TextView(this).apply {
+                      setTextColor(GOLD); textSize = 12f; gravity = Gravity.CENTER
+                      setPadding(0, 12, 0, 4)
+                      setTypeface(null, android.graphics.Typeface.BOLD) }
                   content.addView(statsTv)
 
-                  // Barre de recherche
-                  val search = EditText(this).apply {
+                  search = EditText(this).apply {
                       setTextColor(TEXT); setHintTextColor(MUTED)
-                      hint = "Rechercher un titre, un artiste..."
-                      textSize = 15f
+                      hint = "Rechercher..."
+                      textSize = 13f
                       setBackgroundColor(Color.parseColor("#CC151B2B"))
-                      setPadding(28, 28, 28, 28) }
+                      setPadding(22, 22, 22, 22) }
                   val slp = LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT,
                       LinearLayout.LayoutParams.WRAP_CONTENT)
-                  slp.setMargins(24, 8, 24, 16)
+                  slp.setMargins(18, 4, 18, 10)
                   search.addTextChangedListener(object : TextWatcher {
                       override fun afterTextChanged(s: Editable?) { filter(s.toString()) }
                       override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
                       override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {} })
                   content.addView(search, slp)
 
-                  // Liste des musiques
-                  val rv = RecyclerView(this)
+                  rv = RecyclerView(this)
                   rv.layoutManager = LinearLayoutManager(this)
                   rv.setBackgroundColor(Color.parseColor("#990B0F1A"))
-                  adapter = SongAdapter(songs) { s, index ->
-                      val i = Intent(this@MainActivity, PlayerActivity::class.java)
-                      i.putExtra("song_index", index)
-                      startActivity(i) }
-                  rv.adapter = adapter
                   content.addView(rv, LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
-                  // Crédit
+                  // PLAYER MINI-BAR (visible en bas)
+                  val miniBar = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER_VERTICAL
+                      setBackgroundColor(Color.parseColor("#EE151B2B"))
+                      setPadding(16, 12, 16, 12) }
+                  val miniInfo = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL }
+                  miniInfo.addView(TextView(this).apply {
+                      text = "Damien Music 241"; setTextColor(TEXT); textSize = 13f
+                      setTypeface(null, android.graphics.Typeface.BOLD) })
+                  miniInfo.addView(TextView(this).apply {
+                      text = "Selectionne un titre"; setTextColor(MUTED); textSize = 11f })
+                  miniBar.addView(miniInfo, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                  miniBar.addView(TextView(this).apply {
+                      text = "♪"; setTextColor(GOLD); textSize = 24f
+                      gravity = Gravity.CENTER; setPadding(16, 0, 0, 0) })
+                  content.addView(miniBar)
+
+                  // CREDIT
                   content.addView(TextView(this).apply {
                       text = "Concu par Damien Starly Koumba"
-                      setTextColor(TEXT); textSize = 13f; gravity = Gravity.CENTER
+                      setTextColor(TEXT); textSize = 11f; gravity = Gravity.CENTER
                       setTypeface(null, android.graphics.Typeface.BOLD)
-                      setPadding(0, 16, 0, 4) })
+                      setPadding(0, 10, 0, 2) })
                   content.addView(TextView(this).apply {
                       text = "PROTOTYPE NEYLA 241 - 100% GABONAISE"
-                      setTextColor(GOLD); textSize = 11f; gravity = Gravity.CENTER
-                      setPadding(0, 0, 0, 16) })
+                      setTextColor(GOLD); textSize = 9f; gravity = Gravity.CENTER
+                      setPadding(0, 0, 0, 10) })
 
                   root.addView(content)
                   setContentView(root)
 
-                  startBackgroundCycling()
-                  requestPermissionAndLoad()
+                  startBg()
+                  requestPerms()
               }
 
-              private fun requestPermissionAndLoad() {
-                  val perm = if (Build.VERSION.SDK_INT >= 33)
-                      Manifest.permission.READ_MEDIA_AUDIO
-                  else Manifest.permission.READ_EXTERNAL_STORAGE
-
-                  if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) {
-                      loadSongs()
-                  } else {
-                      ActivityCompat.requestPermissions(this, arrayOf(perm), 100)
+              private fun switchTab(idx: Int) {
+                  currentTab = idx
+                  tabButtons.forEachIndexed { i, b -> b.setTextColor(if (i == idx) ACCENT else TEXT) }
+                  search.setText("")
+                  when (idx) {
+                      0 -> {
+                          rv.layoutManager = LinearLayoutManager(this)
+                          rv.adapter = SongAdapter(songs) { s, i ->
+                              PlaylistManager.songs.clear()
+                              PlaylistManager.songs.addAll(songs)
+                              val it = Intent(this@MainActivity, PlayerActivity::class.java)
+                              it.putExtra("index", i); it.putExtra("type", "audio")
+                              startActivity(it) }
+                          statsTv.text = "${songs.size} musique(s)"
+                      }
+                      1 -> {
+                          rv.layoutManager = LinearLayoutManager(this)
+                          rv.adapter = VidAdapter(vids) { v, i ->
+                              PlaylistManager.vids.clear()
+                              PlaylistManager.vids.addAll(vids)
+                              val it = Intent(this@MainActivity, PlayerActivity::class.java)
+                              it.putExtra("index", i); it.putExtra("type", "video")
+                              startActivity(it) }
+                          statsTv.text = "${vids.size} video(s)"
+                      }
+                      2 -> {
+                          rv.layoutManager = GridLayoutManager(this, 3)
+                          rv.adapter = PhotoAdapter(photos) { p, i ->
+                              val it = Intent(this@MainActivity, ViewerActivity::class.java)
+                              it.putExtra("uri", MediaStore.Images.Media.EXTERNAL_CONTENT_URI.toString() + "/" + p.id)
+                              it.putExtra("title", p.name)
+                              startActivity(it) }
+                          statsTv.text = "${photos.size} photo(s)"
+                      }
                   }
+              }
+
+              private fun requestPerms() {
+                  val perms = mutableListOf<String>()
+                  if (Build.VERSION.SDK_INT >= 33) {
+                      perms.add(Manifest.permission.READ_MEDIA_AUDIO)
+                      perms.add(Manifest.permission.READ_MEDIA_VIDEO)
+                      perms.add(Manifest.permission.READ_MEDIA_IMAGES)
+                  } else {
+                      perms.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+                  }
+                  val need = perms.filter {
+                      ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+                  if (need.isEmpty()) loadAll()
+                  else ActivityCompat.requestPermissions(this, need.toTypedArray(), 100)
               }
 
               override fun onRequestPermissionsResult(
                   requestCode: Int, permissions: Array<out String>, grantResults: IntArray
               ) {
                   super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-                  if (requestCode == 100 && grantResults.isNotEmpty() &&
-                      grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                      loadSongs()
-                  } else {
-                      Toast.makeText(this, "Permission refusee - impossible de lire la musique",
-                          Toast.LENGTH_LONG).show()
+                  if (requestCode == 100) {
+                      val ok = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                      if (ok) loadAll()
+                      else Toast.makeText(this, "Permissions refusees", Toast.LENGTH_LONG).show()
                   }
               }
 
-              private fun loadSongs() {
+              private fun loadAll() {
                   Thread {
-                      val list = mutableListOf<Song>()
-                      val proj = arrayOf(
-                          MediaStore.Audio.Media._ID,
-                          MediaStore.Audio.Media.TITLE,
-                          MediaStore.Audio.Media.ARTIST,
-                          MediaStore.Audio.Media.ALBUM,
-                          MediaStore.Audio.Media.DURATION
-                      )
-                      val cursor = contentResolver.query(
-                          MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                          proj, null, null,
-                          MediaStore.Audio.Media.TITLE + " ASC")
-                      cursor?.use {
-                          val idCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                          val tCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-                          val aCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-                          val alCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-                          val dCol = it.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-                          while (it.moveToNext()) {
-                              list.add(Song(
-                                  it.getLong(idCol),
-                                  it.getString(tCol) ?: "Inconnu",
-                                  it.getString(aCol) ?: "Inconnu",
-                                  it.getString(alCol) ?: "Inconnu",
-                                  it.getLong(dCol)
-                              ))
-                          }
-                      }
+                      val sList = mutableListOf<Song>()
+                      val proj = arrayOf(MediaStore.Audio.Media._ID, MediaStore.Audio.Media.TITLE,
+                          MediaStore.Audio.Media.ARTIST, MediaStore.Audio.Media.ALBUM,
+                          MediaStore.Audio.Media.DURATION)
+                      contentResolver.query(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, proj,
+                          null, null, MediaStore.Audio.Media.TITLE + " ASC")?.use {
+                          val ic = it.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                          val tc = it.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+                          val ac = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+                          val alc = it.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+                          val dc = it.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+                          while (it.moveToNext()) sList.add(Song(it.getLong(ic),
+                              it.getString(tc) ?: "Inconnu", it.getString(ac) ?: "Inconnu",
+                              it.getString(alc) ?: "Inconnu", it.getLong(dc))) }
+
+                      val vList = mutableListOf<Vid>()
+                      val vp = arrayOf(MediaStore.Video.Media._ID, MediaStore.Video.Media.TITLE,
+                          MediaStore.Video.Media.DURATION)
+                      contentResolver.query(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, vp,
+                          null, null, MediaStore.Video.Media.TITLE + " ASC")?.use {
+                          val ic = it.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
+                          val tc = it.getColumnIndexOrThrow(MediaStore.Video.Media.TITLE)
+                          val dc = it.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)
+                          while (it.moveToNext()) vList.add(Vid(it.getLong(ic),
+                              it.getString(tc) ?: "Video", it.getLong(dc))) }
+
+                      val pList = mutableListOf<Photo>()
+                      val pp = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DISPLAY_NAME)
+                      contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, pp,
+                          null, null, MediaStore.Images.Media.DATE_ADDED + " DESC")?.use {
+                          val ic = it.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                          val nc = it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME)
+                          while (it.moveToNext()) pList.add(Photo(it.getLong(ic),
+                              it.getString(nc) ?: "Photo")) }
+
                       runOnUiThread {
-                          allSongs.clear()
-                          allSongs.addAll(list)
-                          songs.clear()
-                          songs.addAll(list)
-                          adapter?.notifyDataSetChanged()
-                          Toast.makeText(this, "${list.size} musique(s) trouvee(s)", Toast.LENGTH_SHORT).show()
+                          songs.clear(); songs.addAll(sList)
+                          vids.clear(); vids.addAll(vList)
+                          photos.clear(); photos.addAll(pList)
+                          switchTab(currentTab)
                       }
                   }.start()
               }
 
               private fun filter(q: String) {
-                  songs.clear()
-                  if (q.isEmpty()) songs.addAll(allSongs)
-                  else songs.addAll(allSongs.filter {
-                      it.title.contains(q, true) || it.artist.contains(q, true) })
-                  adapter?.notifyDataSetChanged()
+                  // On garde simple : filtrage visuel sur la liste actuelle
+                  when (currentTab) {
+                      0 -> {
+                          val filt = if (q.isEmpty()) songs else songs.filter {
+                              it.title.contains(q, true) || it.artist.contains(q, true) }
+                          (rv.adapter as? SongAdapter)?.updateList(filt)
+                      }
+                      1 -> {
+                          val filt = if (q.isEmpty()) vids else vids.filter { it.title.contains(q, true) }
+                          (rv.adapter as? VidAdapter)?.updateList(filt)
+                      }
+                      2 -> {
+                          val filt = if (q.isEmpty()) photos else photos.filter { it.name.contains(q, true) }
+                          (rv.adapter as? PhotoAdapter)?.updateList(filt)
+                      }
+                  }
               }
 
-              override fun onDestroy() {
-                  super.onDestroy()
-                  handler.removeCallbacksAndMessages(null)
-              }
+              override fun onDestroy() { super.onDestroy(); handler.removeCallbacksAndMessages(null) }
           }
 
-          class SongAdapter(
-              private val items: List<Song>,
-              private val onClick: (Song, Int) -> Unit
-          ) : RecyclerView.Adapter<SongAdapter.VH>() {
+          class SongAdapter(var items: List<Song>, val onClick: (Song, Int) -> Unit) :
+              RecyclerView.Adapter<SongAdapter.VH>() {
               class VH(v: View) : RecyclerView.ViewHolder(v)
-              override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
-                  val ctx = parent.context
+              override fun onCreateViewHolder(p: android.view.ViewGroup, t: Int): VH {
+                  val ctx = p.context
                   val row = LinearLayout(ctx).apply {
-                      orientation = LinearLayout.HORIZONTAL
-                      setPadding(32, 22, 32, 22)
-                      layoutParams = RecyclerView.LayoutParams(
-                          RecyclerView.LayoutParams.MATCH_PARENT,
-                          RecyclerView.LayoutParams.WRAP_CONTENT)
-                      isClickable = true
-                      setBackgroundColor(Color.parseColor("#B30B0F1A")) }
-                  val icon = TextView(ctx).apply {
-                      text = "♪"; setTextColor(Color.parseColor("#FBBF24"))
-                      textSize = 32f; gravity = Gravity.CENTER
-                      layoutParams = LinearLayout.LayoutParams(80, 80) }
-                  val col = LinearLayout(ctx).apply {
-                      orientation = LinearLayout.VERTICAL; setPadding(24, 0, 0, 0) }
-                  val t = TextView(ctx).apply {
-                      setTextColor(Color.WHITE); textSize = 16f
-                      setTypeface(null, android.graphics.Typeface.BOLD) }
-                  val a = TextView(ctx).apply {
-                      setTextColor(Color.parseColor("#8B96B8")); textSize = 13f
-                      setPadding(0, 6, 0, 0) }
-                  col.addView(t); col.addView(a)
-                  row.addView(icon)
-                  row.addView(col, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                      orientation = LinearLayout.HORIZONTAL; setPadding(26, 18, 26, 18)
+                      layoutParams = RecyclerView.LayoutParams(-1, -2)
+                      isClickable = true; setBackgroundColor(Color.parseColor("#B30B0F1A")) }
+                  val ic = TextView(ctx).apply { text = "♪"; setTextColor(Color.parseColor("#FBBF24"))
+                      textSize = 28f; gravity = Gravity.CENTER }
+                  val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 0, 0, 0) }
+                  col.addView(TextView(ctx).apply { setTextColor(Color.WHITE); textSize = 14f
+                      setTypeface(null, android.graphics.Typeface.BOLD) })
+                  col.addView(TextView(ctx).apply { setTextColor(Color.parseColor("#8B96B8"))
+                      textSize = 11f; setPadding(0, 4, 0, 0) })
+                  row.addView(ic, LinearLayout.LayoutParams(65, 65))
+                  row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
                   return VH(row) }
-              override fun onBindViewHolder(holder: VH, position: Int) {
-                  val s = items[position]
-                  val row = holder.itemView as LinearLayout
+              override fun onBindViewHolder(h: VH, pos: Int) {
+                  val s = items[pos]; val row = h.itemView as LinearLayout
                   val col = row.getChildAt(1) as LinearLayout
                   (col.getChildAt(0) as TextView).text = s.title
-                  val dur = s.duration / 1000
-                  (col.getChildAt(1) as TextView).text = "${s.artist} - ${s.album}  •  ${dur / 60}:${(dur % 60).toString().padStart(2, '0')}"
-                  row.setOnClickListener { onClick(s, position) } }
+                  (col.getChildAt(1) as TextView).text = "${s.artist} • ${s.album}"
+                  row.setOnClickListener { onClick(s, pos) } }
               override fun getItemCount() = items.size
-          }
+              fun updateList(l: List<Song>) { items = l; notifyDataSetChanged() } }
+
+          class VidAdapter(var items: List<Vid>, val onClick: (Vid, Int) -> Unit) :
+              RecyclerView.Adapter<VidAdapter.VH>() {
+              class VH(v: View) : RecyclerView.ViewHolder(v)
+              override fun onCreateViewHolder(p: android.view.ViewGroup, t: Int): VH {
+                  val ctx = p.context
+                  val row = LinearLayout(ctx).apply {
+                      orientation = LinearLayout.HORIZONTAL; setPadding(26, 18, 26, 18)
+                      layoutParams = RecyclerView.LayoutParams(-1, -2)
+                      isClickable = true; setBackgroundColor(Color.parseColor("#B30B0F1A")) }
+                  val ic = TextView(ctx).apply { text = "🎬"; textSize = 28f; gravity = Gravity.CENTER }
+                  val col = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(18, 0, 0, 0) }
+                  col.addView(TextView(ctx).apply { setTextColor(Color.WHITE); textSize = 14f
+                      setTypeface(null, android.graphics.Typeface.BOLD) })
+                  col.addView(TextView(ctx).apply { setTextColor(Color.parseColor("#8B96B8"))
+                      textSize = 11f; setPadding(0, 4, 0, 0) })
+                  row.addView(ic, LinearLayout.LayoutParams(65, 65))
+                  row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+                  return VH(row) }
+              override fun onBindViewHolder(h: VH, pos: Int) {
+                  val v = items[pos]; val row = h.itemView as LinearLayout
+                  val col = row.getChildAt(1) as LinearLayout
+                  (col.getChildAt(0) as TextView).text = v.title
+                  val s = v.duration / 1000
+                  (col.getChildAt(1) as TextView).text = "${s/60}:${(s%60).toString().padStart(2,'0')}"
+                  row.setOnClickListener { onClick(v, pos) } }
+              override fun getItemCount() = items.size
+              fun updateList(l: List<Vid>) { items = l; notifyDataSetChanged() } }
+
+          class PhotoAdapter(var items: List<Photo>, val onClick: (Photo, Int) -> Unit) :
+              RecyclerView.Adapter<PhotoAdapter.VH>() {
+              class VH(v: View) : RecyclerView.ViewHolder(v)
+              override fun onCreateViewHolder(p: android.view.ViewGroup, t: Int): VH {
+                  val ctx = p.context
+                  val iv = ImageView(ctx)
+                  iv.layoutParams = RecyclerView.LayoutParams(-1, 380)
+                  iv.scaleType = ImageView.ScaleType.CENTER_CROP
+                  iv.setPadding(5, 5, 5, 5)
+                  return VH(iv) }
+              override fun onBindViewHolder(h: VH, pos: Int) {
+                  val ph = items[pos]; val iv = h.itemView as ImageView
+                  val uri = android.content.ContentUris.withAppendedId(
+                      MediaStore.Images.Media.EXTERNAL_CONTENT_URI, ph.id)
+                  Glide.with(iv).load(uri).into(iv)
+                  iv.setOnClickListener { onClick(ph, pos) } }
+              override fun getItemCount() = items.size
+              fun updateList(l: List<Photo>) { items = l; notifyDataSetChanged() } }
           KOTLIN_END
 
       - name: PlayerActivity.kt
@@ -420,99 +568,385 @@ jobs:
           cat > app/src/main/java/com/damienmusic/app/PlayerActivity.kt << 'KOTLIN_END'
           package com.damienmusic.app
 
+          import android.content.ContentUris
           import android.graphics.Color
+          import android.graphics.drawable.GradientDrawable
+          import android.net.Uri
           import android.os.Bundle
           import android.os.Handler
           import android.os.Looper
+          import android.provider.MediaStore
           import android.view.Gravity
+          import android.view.View
           import android.view.WindowManager
           import android.widget.*
           import androidx.appcompat.app.AppCompatActivity
           import androidx.media3.common.MediaItem
+          import androidx.media3.common.Player
           import androidx.media3.exoplayer.ExoPlayer
           import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+          import androidx.media3.ui.PlayerView
 
           class PlayerActivity : AppCompatActivity() {
+              private val ACCENT = Color.parseColor("#E50914")
+              private val GOLD = Color.parseColor("#FBBF24")
+              private val TEXT = Color.WHITE
+              private val MUTED = Color.parseColor("#8B96B8")
+              private val PURPLE = Color.parseColor("#8B5CF6")
+
               private var player: ExoPlayer? = null
-              private var isPlaying = false
+              private var currentIndex = 0
+              private var type = "audio"
+              private var repeatMode = 0 // 0=off, 1=one, 2=all
+              private var shuffle = false
               private val handler = Handler(Looper.getMainLooper())
+
+              private lateinit var titleTv: TextView
+              private lateinit var artistTv: TextView
+              private lateinit var playBtn: TextView
+              private lateinit var repeatBtn: TextView
+              private lateinit var shuffleBtn: TextView
+              private lateinit var coverTv: TextView
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
                   window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                   window.statusBarColor = Color.BLACK
 
-                  val BG = Color.parseColor("#0B0F1A")
-                  val ACCENT = Color.parseColor("#E50914")
-                  val GOLD = Color.parseColor("#FBBF24")
-                  val TEXT = Color.WHITE
-                  val MUTED = Color.parseColor("#8B96B8")
-
-                  val songIndex = intent.getIntExtra("song_index", 0)
+                  currentIndex = intent.getIntExtra("index", 0)
+                  type = intent.getStringExtra("type") ?: "audio"
 
                   val root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
-                      setBackgroundColor(BG)
-                      gravity = Gravity.CENTER
-                      setPadding(48, 80, 48, 80) }
+                      setBackgroundColor(Color.parseColor("#0B0F1A"))
+                      gravity = Gravity.CENTER_HORIZONTAL
+                      setPadding(24, 50, 24, 40) }
 
-                  root.addView(TextView(this).apply {
-                      text = "🎵"; textSize = 130f; gravity = Gravity.CENTER
-                      setPadding(0, 0, 0, 30) })
-
-                  root.addView(TextView(this).apply {
-                      text = "Damien Music 241"
-                      setTextColor(GOLD); textSize = 14f; gravity = Gravity.CENTER
-                      setTypeface(null, android.graphics.Typeface.BOLD)
-                      setPadding(0, 0, 0, 60) })
-
-                  root.addView(TextView(this).apply {
-                      text = "Lecture en cours"
-                      setTextColor(TEXT); textSize = 22f; gravity = Gravity.CENTER
-                      setTypeface(null, android.graphics.Typeface.BOLD) })
-
-                  root.addView(TextView(this).apply {
-                      text = "Depuis votre telephone"
-                      setTextColor(MUTED); textSize = 14f; gravity = Gravity.CENTER
-                      setPadding(0, 12, 0, 60) })
-
-                  val btnRow = LinearLayout(this).apply {
+                  // HEADER
+                  val header = LinearLayout(this).apply {
                       orientation = LinearLayout.HORIZONTAL
-                      gravity = Gravity.CENTER }
+                      gravity = Gravity.CENTER_VERTICAL
+                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
+                  header.addView(TextView(this).apply {
+                      text = "←"; setTextColor(TEXT); textSize = 30f
+                      gravity = Gravity.CENTER; setPadding(15, 0, 15, 0)
+                      setOnClickListener { finish() } })
+                  header.addView(TextView(this).apply {
+                      text = if (type == "audio") "♫ Lecture" else "▶ Vidéo"
+                      setTextColor(GOLD); textSize = 14f
+                      setTypeface(null, android.graphics.Typeface.BOLD)
+                      layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                      gravity = Gravity.CENTER })
+                  // MENU (3 lignes)
+                  header.addView(TextView(this).apply {
+                      text = "☰"; setTextColor(TEXT); textSize = 26f
+                      gravity = Gravity.CENTER; setPadding(15, 0, 15, 0)
+                      setOnClickListener { showPlaylist() } })
+                  root.addView(header)
 
-                  val playBtn = TextView(this).apply {
+                  // COVER / VIDEO
+                  if (type == "audio") {
+                      coverTv = TextView(this).apply {
+                          text = "🎵"; textSize = 130f; gravity = Gravity.CENTER
+                          setPadding(0, 60, 0, 30) }
+                      root.addView(coverTv)
+
+                      titleTv = TextView(this).apply {
+                          setTextColor(TEXT); textSize = 22f; gravity = Gravity.CENTER
+                          setTypeface(null, android.graphics.Typeface.BOLD)
+                          setPadding(0, 20, 0, 8) }
+                      root.addView(titleTv)
+
+                      artistTv = TextView(this).apply {
+                          setTextColor(MUTED); textSize = 14f; gravity = Gravity.CENTER
+                          setPadding(0, 0, 0, 40) }
+                      root.addView(artistTv)
+                  } else {
+                      val pv = PlayerView(this).apply {
+                          layoutParams = LinearLayout.LayoutParams(-1, 600) }
+                      root.addView(pv)
+                      // Le player sera attaché plus bas
+                      root.tag = pv
+                  }
+
+                  // BARRE DE PROGRESSION (audio seulement)
+                  if (type == "audio") {
+                      val seek = SeekBar(this).apply {
+                          layoutParams = LinearLayout.LayoutParams(-1, -2) }
+                      root.addView(seek)
+                      root.tag = seek
+                  }
+
+                  // TEMPS
+                  val timeRow = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
+                  val cur = TextView(this).apply { text = "0:00"; setTextColor(MUTED); textSize = 11f }
+                  val total = TextView(this).apply { text = "0:00"; setTextColor(MUTED); textSize = 11f }
+                  val spacer = View(this)
+                  timeRow.addView(cur)
+                  timeRow.addView(spacer, LinearLayout.LayoutParams(0, 1, 1f))
+                  timeRow.addView(total)
+                  if (type == "audio") root.addView(timeRow)
+
+                  // CONTROLES
+                  val controls = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      gravity = Gravity.CENTER
+                      setPadding(0, 40, 0, 0)
+                      layoutParams = LinearLayout.LayoutParams(-1, -2) }
+
+                  shuffleBtn = TextView(this).apply {
+                      text = "🔀"; textSize = 26f; gravity = Gravity.CENTER
+                      setPadding(20, 20, 20, 20)
+                      setTextColor(MUTED)
+                      setOnClickListener { toggleShuffle() } }
+                  controls.addView(shuffleBtn)
+
+                  controls.addView(TextView(this).apply {
+                      text = "⏮"; setTextColor(TEXT); textSize = 38f
+                      gravity = Gravity.CENTER; setPadding(20, 0, 20, 0)
+                      setOnClickListener { prev() } })
+
+                  playBtn = TextView(this).apply {
                       text = "⏸"; setTextColor(TEXT); textSize = 40f
-                      gravity = Gravity.CENTER; setBackgroundColor(ACCENT)
-                      setPadding(60, 40, 60, 40)
-                      setOnClickListener {
-                          if (isPlaying) { player?.pause(); text = "▶"; isPlaying = false }
-                          else { player?.play(); text = "⏸"; isPlaying = true } } }
+                      gravity = Gravity.CENTER
+                      setBackgroundColor(ACCENT)
+                      setPadding(50, 35, 50, 35)
+                      setOnClickListener { togglePlay() } }
+                  val plp = LinearLayout.LayoutParams(-2, -2)
+                  plp.setMargins(20, 0, 20, 0)
+                  controls.addView(playBtn, plp)
 
-                  btnRow.addView(playBtn)
-                  root.addView(btnRow)
+                  controls.addView(TextView(this).apply {
+                      text = "⏭"; setTextColor(TEXT); textSize = 38f
+                      gravity = Gravity.CENTER; setPadding(20, 0, 20, 0)
+                      setOnClickListener { next() } })
 
+                  repeatBtn = TextView(this).apply {
+                      text = "🔁"; textSize = 26f; gravity = Gravity.CENTER
+                      setPadding(20, 20, 20, 20)
+                      setTextColor(MUTED)
+                      setOnClickListener { toggleRepeat() } }
+                  controls.addView(repeatBtn)
+
+                  root.addView(controls)
+
+                  // CREDIT
                   root.addView(TextView(this).apply {
                       text = "Concu par Damien Starly Koumba"
                       setTextColor(MUTED); textSize = 12f; gravity = Gravity.CENTER
-                      setPadding(0, 80, 0, 8) })
+                      setPadding(0, 60, 0, 4) })
                   root.addView(TextView(this).apply {
-                      text = "PROTOTYPE NEYLA 241"
-                      setTextColor(GOLD); textSize = 11f; gravity = Gravity.CENTER })
+                      text = "PROTOTYPE NEYLA 241 🇬🇦"
+                      setTextColor(GOLD); textSize = 10f; gravity = Gravity.CENTER })
 
                   setContentView(root)
 
-                  // Note : pour la vraie lecture, on a besoin des URI de la musique
-                  // Cette version sert de base - la prochaine version utilisera les vraies URI
+                  // Init player
+                  player = ExoPlayer.Builder(this)
+                      .setMediaSourceFactory(DefaultMediaSourceFactory())
+                      .setHandleAudioBecomingNoisy(true)
+                      .build()
+
+                  val pv = if (type == "video") root.tag as? PlayerView else null
+                  if (pv != null) pv.player = player
+
+                  player!!.addListener(object : Player.Listener {
+                      override fun onPlaybackStateChanged(state: Int) {
+                          if (state == Player.STATE_ENDED) next() }
+                      override fun onIsPlayingChanged(isPlaying: Boolean) {
+                          playBtn.text = if (isPlaying) "⏸" else "▶" }
+                  })
+
+                  val seekBar = if (type == "audio") root.tag as? SeekBar else null
+                  if (seekBar != null) {
+                      seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                          override fun onProgressChanged(sb: SeekBar?, p: Int, fromUser: Boolean) {
+                              if (fromUser) player?.seekTo(p.toLong()) }
+                          override fun onStartTrackingTouch(sb: SeekBar?) {}
+                          override fun onStopTrackingTouch(sb: SeekBar?) {} })
+
+                      handler.post(object : Runnable {
+                          override fun run() {
+                              player?.let {
+                                  val cur = it.currentPosition
+                                  val dur = it.duration
+                                  if (dur > 0) {
+                                      seekBar.max = dur.toInt()
+                                      seekBar.progress = cur.toInt()
+                                      cur_@{
+                                          cur.text = fmt(cur)
+                                          total.text = fmt(dur)
+                                      }
+                                  }
+                              }
+                              handler.postDelayed(this, 500) } })
+                  }
+
+                  playCurrent()
               }
 
-              override fun onDestroy() { super.onDestroy(); player?.release(); player = null }
+              private fun fmt(ms: Long): String {
+                  val s = ms / 1000
+                  return "${s/60}:${(s%60).toString().padStart(2,'0')}"
+              }
+
+              private fun playCurrent() {
+                  if (type == "audio") {
+                      if (currentIndex >= PlaylistManager.songs.size) return
+                      val s = PlaylistManager.songs[currentIndex]
+                      val uri = ContentUris.withAppendedId(
+                          MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, s.id)
+                      player?.setMediaItem(MediaItem.fromUri(uri))
+                      player?.prepare()
+                      player?.playWhenReady = true
+                      titleTv.text = s.title
+                      artistTv.text = "${s.artist} • ${s.album}"
+                  } else {
+                      if (currentIndex >= PlaylistManager.vids.size) return
+                      val v = PlaylistManager.vids[currentIndex]
+                      val uri = ContentUris.withAppendedId(
+                          MediaStore.Video.Media.EXTERNAL_CONTENT_URI, v.id)
+                      player?.setMediaItem(MediaItem.fromUri(uri))
+                      player?.prepare()
+                      player?.playWhenReady = true
+                  }
+              }
+
+              private fun togglePlay() {
+                  if (player?.isPlaying == true) player?.pause() else player?.play()
+              }
+
+              private fun next() {
+                  if (type == "audio") {
+                      currentIndex = if (shuffle) (0 until PlaylistManager.songs.size).random()
+                      else (currentIndex + 1) % PlaylistManager.songs.size
+                  } else {
+                      currentIndex = (currentIndex + 1) % PlaylistManager.vids.size
+                  }
+                  playCurrent()
+              }
+
+              private fun prev() {
+                  if (type == "audio") {
+                      currentIndex = if (currentIndex - 1 < 0) PlaylistManager.songs.size - 1 else currentIndex - 1
+                  } else {
+                      currentIndex = if (currentIndex - 1 < 0) PlaylistManager.vids.size - 1 else currentIndex - 1
+                  }
+                  playCurrent()
+              }
+
+              private fun toggleRepeat() {
+                  repeatMode = (repeatMode + 1) % 3
+                  when (repeatMode) {
+                      0 -> { player?.repeatMode = Player.REPEAT_MODE_OFF; repeatBtn.setTextColor(MUTED); repeatBtn.text = "🔁" }
+                      1 -> { player?.repeatMode = Player.REPEAT_MODE_ONE; repeatBtn.setTextColor(GOLD); repeatBtn.text = "🔂" }
+                      2 -> { player?.repeatMode = Player.REPEAT_MODE_ALL; repeatBtn.setTextColor(GOLD); repeatBtn.text = "🔁" }
+                  }
+              }
+
+              private fun toggleShuffle() {
+                  shuffle = !shuffle
+                  shuffleBtn.setTextColor(if (shuffle) PURPLE else MUTED)
+              }
+
+              private fun showPlaylist() {
+                  val list = if (type == "audio") PlaylistManager.songs else PlaylistManager.vids
+                  if (list.isEmpty()) return
+                  val names = list.map { if (type == "audio") (it as Song).title else (it as Vid).title }
+                  android.app.AlertDialog.Builder(this)
+                      .setTitle("Playlist (${names.size})")
+                      .setItems(names.toTypedArray()) { _, which ->
+                          currentIndex = which
+                          playCurrent() }
+                      .setNegativeButton("Fermer", null)
+                      .show()
+              }
+
+              override fun onPause() { super.onPause(); player?.pause() }
+              override fun onResume() { super.onResume() }
+              override fun onDestroy() {
+                  super.onDestroy()
+                  handler.removeCallbacksAndMessages(null)
+                  player?.release()
+                  player = null
+              }
           }
           KOTLIN_END
 
-      - name: Compiler l'APK
+      - name: ViewerActivity.kt
+        run: |
+          cat > app/src/main/java/com/damienmusic/app/ViewerActivity.kt << 'KOTLIN_END'
+          package com.damienmusic.app
+
+          import android.graphics.Color
+          import android.net.Uri
+          import android.os.Bundle
+          import android.view.Gravity
+          import android.view.WindowManager
+          import android.widget.FrameLayout
+          import android.widget.ImageView
+          import android.widget.LinearLayout
+          import android.widget.TextView
+          import androidx.appcompat.app.AppCompatActivity
+          import com.bumptech.glide.Glide
+
+          class ViewerActivity : AppCompatActivity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                  window.statusBarColor = Color.BLACK
+
+                  val uriStr = intent.getStringExtra("uri") ?: return
+                  val title = intent.getStringExtra("title") ?: "Photo"
+
+                  val root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+
+                  val iv = ImageView(this).apply {
+                      layoutParams = FrameLayout.LayoutParams(-1, -1)
+                      scaleType = ImageView.ScaleType.FIT_CENTER }
+                  root.addView(iv)
+                  Glide.with(this).load(Uri.parse(uriStr)).into(iv)
+
+                  val top = LinearLayout(this).apply {
+                      orientation = LinearLayout.HORIZONTAL
+                      setPadding(24, 50, 24, 24)
+                      gravity = Gravity.CENTER_VERTICAL }
+                  top.addView(TextView(this).apply {
+                      text = "←"; setTextColor(Color.WHITE); textSize = 30f
+                      setPadding(15, 0, 15, 0)
+                      setOnClickListener { finish() } })
+                  top.addView(TextView(this).apply {
+                      text = title; setTextColor(Color.WHITE); textSize = 14f })
+                  root.addView(top)
+
+                  val bottom = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(24, 24, 24, 50) }
+                  bottom.addView(TextView(this).apply {
+                      text = "Concu par Damien Starly Koumba"
+                      setTextColor(Color.parseColor("#8B96B8")); textSize = 12f
+                      gravity = Gravity.CENTER })
+                  bottom.addView(TextView(this).apply {
+                      text = "PROTOTYPE NEYLA 241 🇬🇦"
+                      setTextColor(Color.parseColor("#FBBF24")); textSize = 10f
+                      gravity = Gravity.CENTER; setPadding(0, 6, 0, 0) })
+                  val blp = FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.WRAP_CONTENT,
+                      Gravity.BOTTOM)
+                  root.addView(bottom, blp)
+
+                  setContentView(root)
+              }
+          }
+          KOTLIN_END
+
+      - name: Compiler
         run: gradle assembleRelease --no-daemon
 
-      - name: Renommer APK
+      - name: Renommer
         run: |
           mkdir -p output
           cp app/build/outputs/apk/release/app-release.apk output/damien-music-241.apk
